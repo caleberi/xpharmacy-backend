@@ -53,7 +53,7 @@ export type ParsedGlobOutput = {
   cronSetting?: CronSetting;
 };
 
-export class Zipper {
+export class ScheduledZipperAndUploader {
   private state = 0;
   private _fileGlobs: FileGlob[]; // array of 'FileGlob' to be used by the zipper
   private queue: Scheduler;
@@ -63,16 +63,17 @@ export class Zipper {
   }
 
   createZipperQueue(opts: {
-    prefix?: string;
+    prefix?: string | 'q'; // used kue scheduler but defaults to 'q'
     redis?: {
+      // redis configuration
       [key: string]: any;
       port: number;
       host: string;
     };
-    restore?: boolean;
-    worker?: boolean;
-    skipConfig?: boolean;
-    enableExpiryNotifications?: boolean;
+    restore?: boolean; //  restore schedules in case of restarts or other causes.
+    worker?: boolean; // allow instance to process the scheduled jobs from other process
+    skipConfig?: boolean; // tells kue-scheduler to skip enabling enabling key expiry notification
+    enableExpiryNotifications?: boolean; // explicitly set enableExpiryNotifications
   }) {
     this.queue = kue.createQueue(opts);
     if (opts.enableExpiryNotifications) this.queue.enableExpiryNotifications();
@@ -80,9 +81,17 @@ export class Zipper {
   }
 
   register(
-    event: 'schedule error' | 'schedule success',
+    event:
+      | 'schedule error'
+      | 'schedule success'
+      | 'already scheduled'
+      | 'lock error'
+      | 'unlock error'
+      | 'scheduler unknown job expiry key'
+      | 'restore success'
+      | 'restore error',
     callback: (d: any) => void,
-  ): Zipper {
+  ): ScheduledZipperAndUploader {
     this.queue.on(event, callback);
     return this;
   }
@@ -145,7 +154,10 @@ export class Zipper {
               } else {
                 logger.info(`FAILED TO  ZIP ${job.data.cronSetting.service}`);
               }
-              return done();
+              return done(null, {
+                service: job.data.cronSetting.service,
+                completed_at: new Date().toISOString(),
+              });
             } catch (err) {
               logger.error(err);
               throw err;
