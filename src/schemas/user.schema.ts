@@ -1,3 +1,4 @@
+import { encrypt } from './../utils/encryptions.util';
 import { UserRole } from './../constants/roles.constant';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
@@ -17,22 +18,19 @@ export type UserDocument = User & Document;
   toObject: {
     virtuals: true,
   },
+  versionKey: false,
 })
 export class User {
   @Prop({ required: true })
   name: string;
   @Prop({
     type: String,
-    enum: [
-      UserRole.ADMIN,
-      UserRole.DEVELOPER,
-      UserRole.SALE_REP,
-      UserRole.MANAGER,
-    ],
+    enum: UserRole,
     default: UserRole.SALE_REP,
   })
-  role: UserRole;
+  role?: UserRole;
   @Prop({
+    type: String,
     required: true,
     validate: {
       validator: (value: string) => validator.isEmail(value),
@@ -46,18 +44,45 @@ export class User {
       message: messages.INVALID_PHONE_NUMBER,
     },
   })
-  phone: string;
-  @Prop({ required: true })
+  phone?: string;
+  @Prop({ type: String, required: true, select: false })
   password: string;
+  @Prop({
+    type: String,
+    required: true,
+    validate: {
+      validator: function (val: string) {
+        return val === this.password;
+      },
+      message: messages.INCORRECT_PASSWORD_CONFIRM,
+    },
+  })
+  passwordConfirm: string;
+  @Prop({ type: Date })
+  lastModifiedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
 export const UserHookMiddleware = () => {
   const schema = UserSchema;
-  schema.pre('save', function (next) {
-    console.log('Hello from pre save');
+  schema.pre('save', async function (next) {
+    if (!this.isModified('password')) return next();
+    this['password'] = await encrypt(this['password'] as string);
+    this['passwordConfirm'] = undefined;
     next();
   });
+  schema.post(/^find/, function (doc, next) {
+    next();
+  });
+
+  schema.post('save', function (doc, next) {
+    console.log('A Document was recently saved .... ');
+    console.log(doc);
+    // delete the password before sending it out (security)
+    doc['password'] = undefined;
+    next();
+  });
+
   return schema;
 };
