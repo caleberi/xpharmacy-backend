@@ -34,8 +34,12 @@ export abstract class ModelRepository<T extends Document> {
     projection?: any,
     options?: QueryOptions,
     // eslint-disable-next-line @typescript-eslint/ban-types
-  ): Promise<HydratedDocument<T, {}, {}>> {
-    return await this.findOne({ _id: id }, projection, options);
+  ): Promise<T | null> {
+    return await this.findOne(
+      { _id: id },
+      { __id: 0, __v: 0, ...projection },
+      options,
+    );
   }
 
   async deleteById(
@@ -87,7 +91,7 @@ export abstract class ModelRepository<T extends Document> {
       doc: HydratedDocument<T, {}, {}>,
       res: any,
     ) => any,
-  ) {
+  ): Promise<T | null> {
     return await this.model.findByIdAndUpdate(id, update, options, callback);
   }
 }
